@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GAS Bootstrap Form Builder</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+
+    <style>
+      /* Custom scrollbar */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #f1f1f1; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+      
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .animate-fadeIn { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+
+        // --- 1. Utilities ---
+        
+        const uuidv4 = () => {
+            return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
+                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            );
+        };
+
+        // --- CODE GENERATORS (UPDATED FOR FILE UPLOAD LOGIC) ---
+        
+        const generateHTML = (rows, formTitle) => {
+            const formContent = rows.map(row => {
+                const cols = row.columns.map(col => {
+                let fieldHtml = '';
+                const requiredAttr = col.required ? 'required' : '';
+                const nameAttr = col.name ? `name="${col.name}"` : '';
+                const idAttr = `id="${col.name || col.id}"`;
+
+                switch (col.type) {
+                    case 'header':
+                    fieldHtml = `<h3 class="${col.className || 'mb-3'}">${col.label}</h3>`;
+                    break;
+                    case 'paragraph':
+                    fieldHtml = `<p class="${col.className || 'mb-3'}">${col.label}</p>`;
+                    break;
+                    case 'text':
+                    case 'email':
+                    case 'password':
+                    case 'tel':
+                    case 'url':
+                    case 'number':
+                    case 'date':
+                    case 'time':
+                    fieldHtml = `
+                        <label for="${col.name || col.id}" class="form-label">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
+                        <input type="${col.type}" class="form-control bg-light" ${idAttr} ${nameAttr} placeholder="${col.placeholder || ''}" ${requiredAttr}>
+                    `;
+                    break;
+                    case 'file':
+                     // Note: We use specific logic in script to handle this
+                    fieldHtml = `
+                        <label for="${col.name || col.id}" class="form-label">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
+                        <input type="file" class="form-control bg-light" ${idAttr} ${nameAttr} ${requiredAttr}>
+                        <div class="form-text">Max file size: 50MB</div>
+                    `;
+                    break;
+                    case 'color':
+                    fieldHtml = `
+                        <label for="${col.name || col.id}" class="form-label">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
+                        <input type="color" class="form-control form-control-color bg-light" ${idAttr} ${nameAttr} value="${col.value || '#000000'}" title="Choose your color" ${requiredAttr}>
+                    `;
+                    break;
+                    case 'range':
+                    fieldHtml = `
+                        <label for="${col.name || col.id}" class="form-label">${col.label}</label>
+                        <input type="range" class="form-range" ${idAttr} ${nameAttr} min="0" max="100" ${requiredAttr}>
+                    `;
+                    break;
+                    case 'textarea':
+                    fieldHtml = `
+                        <label for="${col.name || col.id}" class="form-label">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
+                        <textarea class="form-control bg-light" ${idAttr} ${nameAttr} rows="3" placeholder="${col.placeholder || ''}" ${requiredAttr}></textarea>
+                    `;
+                    break;
+                    case 'select':
+                    fieldHtml = `
+                        <label for="${col.name || col.id}" class="form-label">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
+                        <select class="form-select bg-light" ${idAttr} ${nameAttr} ${requiredAttr}>
+                        <option value="" selected disabled>${col.placeholder || 'Select an option'}</option>
+                        ${col.options?.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+                        </select>
+                    `;
+                    break;
+                    case 'checkbox':
+                    fieldHtml = `
+                        <div class="form-check">
+                        <input class="form-check-input" type="checkbox" ${idAttr} ${nameAttr} ${requiredAttr}>
+                        <label class="form-check-label" for="${col.name || col.id}">
+                            ${col.label}
+                        </label>
+                        </div>
+                    `;
+                    break;
+                    case 'radio':
+                    fieldHtml = `
+                        <label class="form-label d-block">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
+                        ${col.options?.map((opt, idx) => `
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="${col.name}" id="${col.name}_${idx}" value="${opt}" ${requiredAttr}>
+                            <label class="form-check-label" for="${col.name}_${idx}">${opt}</label>
+                        </div>
+                        `).join('')}
+                    `;
+                    break;
+                    case 'button':
+                    fieldHtml = `<button type="submit" class="btn ${col.className || 'btn-primary'} w-100">${col.label}</button>`;
+                    break;
+                }
+
+                if (col.helpText) {
+                    fieldHtml += `<div class="form-text">${col.helpText}</div>`;
+                }
+
+                return `
+                    <div class="col-md-${col.colSpan || 12} mb-3">
+                    ${fieldHtml}
+                    </div>`;
+                }).join('\n');
+
+                return `
+                <div class="row">
+                    ${cols}
+                </div>`;
+            }).join('\n');
+
+            return `<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${formTitle}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+      body { background-color: #f8f9fa; padding: 20px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif; }
+      .form-container { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05); max-width: 800px; margin: 0 auto; }
+      .btn-primary { background-color: #4f46e5; border-color: #4f46e5; }
+      .btn-primary:hover { background-color: #4338ca; border-color: #4338ca; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="form-container">
+        <h2 class="text-center mb-5 fw-bold text-primary">${formTitle}</h2>
+        <form id="mainForm" onsubmit="handleFormSubmit(event)" class="needs-validation" novalidate>
+          ${formContent}
+        </form>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"><\/script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/gasparesganga-jquery-loading-overlay@2.1.7/dist/loadingoverlay.min.js"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"><\/script>
+
+    <script>
+      // Helper to read file as Base64
+      function getFileData(fileInput) {
+        return new Promise((resolve, reject) => {
+            if (!fileInput.files || fileInput.files.length === 0) {
+                resolve(null);
+                return;
+            }
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                resolve({
+                    name: file.name,
+                    mimeType: file.type,
+                    data: e.target.result.split(',')[1] // Remove 'data:image/png;base64,' prefix
+                });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+      }
+
+      async function handleFormSubmit(e) {
+        e.preventDefault();
+        
+        var form = document.getElementById('mainForm');
+        if (!form.checkValidity()) {
+          e.stopPropagation();
+          form.classList.add('was-validated');
+          return;
+        }
+
+        // Show Loading
+        $.LoadingOverlay("show", {
+          image: "",
+          fontawesome: "fa fa-cog fa-spin",
+          text: "Submitting..."
+        });
+
+        try {
+            // Collect Data
+            var formData = {};
+            var inputs = form.querySelectorAll('input, select, textarea');
+            
+            for (var i = 0; i < inputs.length; i++) {
+                var el = inputs[i];
+                if (!el.name || el.type === 'submit') continue;
+
+                if (el.type === 'file') {
+                    // Handle File Conversion
+                    var fileData = await getFileData(el);
+                    if (fileData) {
+                        formData[el.name] = fileData;
+                    }
+                } else if (el.type === 'checkbox') {
+                    if (el.checked) {
+                        if (!formData[el.name]) formData[el.name] = [];
+                        // Check if it's part of a group (array) or single boolean
+                        // Simple logic: assume standard values if checkbox has value attribute
+                        formData[el.name].push(el.value || 'Yes'); 
+                    }
+                } else if (el.type === 'radio') {
+                    if (el.checked) formData[el.name] = el.value;
+                } else {
+                    formData[el.name] = el.value;
+                }
+            }
+
+            // Post-process checkboxes
+            for (var key in formData) {
+                if (Array.isArray(formData[key]) && formData[key].length === 1 && formData[key][0] === 'on') {
+                     // Single boolean checkbox case
+                     formData[key] = "Checked"; 
+                }
+            }
+
+            // Call Google Script
+            google.script.run
+            .withSuccessHandler(function(response) {
+                $.LoadingOverlay("hide");
+                confetti({
+                particleCount: 150,
+                spread: 70,
+                origin: { y: 0.6 }
+                });
+                Swal.fire({
+                title: 'Success!',
+                text: 'Form submitted successfully.',
+                icon: 'success',
+                confirmButtonColor: '#4f46e5'
+                });
+                form.reset();
+                form.classList.remove('was-validated');
+            })
+            .withFailureHandler(function(error) {
+                $.LoadingOverlay("hide");
+                Swal.fire({
+                title: 'Error!',
+                text: error.message,
+                icon: 'error',
+                confirmButtonText: 'Try Again'
+                });
+            })
+            .processForm(formData);
+
+        } catch (err) {
+            $.LoadingOverlay("hide");
+            console.error(err);
+             Swal.fire({
+                title: 'Error!',
+                text: 'An error occurred while preparing data.',
+                icon: 'error'
+            });
+        }
+      }
+    <\/script>
+  </body>
+</html>`;
+        };
+
+        const generateGS = (rows) => {
+            // Extract File Maps
+            const fileMaps = {};
+            rows.forEach(row => {
+                row.columns.forEach(col => {
+                    if (col.type === 'file' && col.folderId) {
+                        fileMaps[col.name] = col.folderId;
+                    }
+                });
+            });
+
+            const fileMapString = JSON.stringify(fileMaps, null, 2);
+
+        return `/**
+ * Serves the HTML file.
+ */
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('index')
+      .setTitle('Form App')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// Configuration for File Uploads
+// Maps field names to Drive Folder IDs
+const FOLDER_MAP = ${fileMapString};
+
+/**
+ * Process the form data sent from the client.
+ * @param {Object} formData - Key/value pairs of form fields.
+ */
+function processForm(formData) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    var doc = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = doc.getActiveSheet();
+
+    // Headers
+    if (sheet.getLastRow() === 0) {
+      // Use keys from data, filtering out complex objects if needed, 
+      // but usually we just want column names
+      var headers = Object.keys(formData);
+      sheet.appendRow(headers);
+    }
+
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    
+    var newRow = headers.map(function(header) {
+      var value = formData[header];
+
+      // 1. Handle File Uploads
+      if (value && typeof value === 'object' && value.mimeType && value.data) {
+        var folderId = FOLDER_MAP[header];
+        return saveFileToDrive(value, folderId);
+      }
+      
+      // 2. Handle Arrays (Checkbox groups)
+      if (Array.isArray(value)) {
+        return value.join(', ');
+      }
+
+      return value || '';
+    });
+
+    sheet.appendRow(newRow);
+
+    return { success: true, message: "Data received" };
+  } catch (e) {
+    throw new Error("Processing failed: " + e.message);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Helper to save Base64 data to Drive
+ */
+function saveFileToDrive(fileObj, folderId) {
+  try {
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(fileObj.data),
+      fileObj.mimeType,
+      fileObj.name
+    );
+    
+    var folder;
+    if (folderId) {
+      try {
+        folder = DriveApp.getFolderById(folderId);
+      } catch(e) {
+        // Fallback if ID is invalid
+        folder = DriveApp.getRootFolder();
+      }
+    } else {
+      folder = DriveApp.getRootFolder();
+    }
+    
+    var file = folder.createFile(blob);
+    return file.getUrl(); // Store the URL in the spreadsheet
+  } catch (e) {
+    return "Error saving file: " + e.message;
+  }
+}
+`;
+        };
+
+        // --- 2. Components ---
+
+        const Icon = ({ name, className }) => {
+            return <i className={`fa-solid fa-${name} ${className || ''}`}></i>;
+        };
+
+        const SidebarItem = ({ type, label, icon, onClick }) => (
+            <button 
+                onClick={onClick}
+                className="flex items-center w-full gap-3 p-3 mb-2 text-sm font-medium transition-all bg-white border rounded-lg shadow-sm text-slate-700 border-slate-200 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 active:scale-95 group"
+            >
+                <div className="flex items-center justify-center w-8 h-8 text-indigo-500 bg-indigo-100 rounded-md group-hover:bg-indigo-200 transition-colors">
+                    <Icon name={icon} />
+                </div>
+                {label}
+            </button>
+        );
+
+        // --- 3. Main App Component ---
+
+        function App() {
+            // State
+            const [rows, setRows] = useState(() => [
+                {
+                    id: uuidv4(),
+                    columns: [{
+                        id: uuidv4(),
+                        type: 'button',
+                        label: 'Submit Form',
+                        colSpan: 12,
+                        className: 'btn-primary',
+                        placeholder: ''
+                    }]
+                }
+            ]);
+            const [selectedElementId, setSelectedElementId] = useState(null);
+            const [showCode, setShowCode] = useState(false);
+            const [activeTab, setActiveTab] = useState('html');
+            const [appName, setAppName] = useState("My Generator Form");
+            const [draggedRowId, setDraggedRowId] = useState(null);
+
+            // Helper to find element
+            const findElement = (id) => {
+                for (const row of rows) {
+                    const found = row.columns.find(c => c.id === id);
+                    if (found) return found;
+                }
+                return undefined;
+            };
+
+            const selectedElement = selectedElementId ? findElement(selectedElementId) : null;
+
+            // Actions
+            const addRow = (cols) => {
+                const newRow = {
+                    id: uuidv4(),
+                    columns: Array.from({ length: cols }).map(() => ({
+                        id: uuidv4(),
+                        type: 'text',
+                        label: 'New Input',
+                        name: `field_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+                        placeholder: 'Enter text...',
+                        colSpan: Math.floor(12 / cols),
+                        className: '',
+                    }))
+                };
+                
+                const lastRow = rows[rows.length - 1];
+                const isLastRowButton = lastRow && lastRow.columns.length === 1 && lastRow.columns[0].type === 'button';
+                
+                if (isLastRowButton) {
+                    const newRows = [...rows];
+                    newRows.splice(rows.length - 1, 0, newRow);
+                    setRows(newRows);
+                } else {
+                    setRows([...rows, newRow]);
+                }
+            };
+
+            const addElementToNewRow = (type) => {
+                const newElement = {
+                    id: uuidv4(),
+                    type,
+                    label: type.charAt(0).toUpperCase() + type.slice(1),
+                    name: `field_${Date.now()}`,
+                    placeholder: type === 'button' ? '' : 'Enter value...',
+                    colSpan: 12,
+                    options: (type === 'select' || type === 'radio' || type === 'checkbox') ? ['Option 1', 'Option 2', 'Option 3'] : undefined,
+                    className: type === 'button' ? 'btn-primary' : '',
+                };
+                
+                if (type === 'header') newElement.label = "Form Header";
+                if (type === 'button') newElement.label = "Submit Form";
+                if (type === 'paragraph') newElement.label = "Enter your descriptive text here.";
+                if (type === 'color') newElement.value = "#4f46e5";
+                if (type === 'file') newElement.folderId = ""; // Add folderId prop
+
+                const lastRow = rows[rows.length - 1];
+                const isLastRowButton = lastRow && lastRow.columns.length === 1 && lastRow.columns[0].type === 'button';
+
+                if (isLastRowButton && type !== 'button') {
+                   const newRows = [...rows];
+                   newRows.splice(rows.length - 1, 0, { id: uuidv4(), columns: [newElement] });
+                   setRows(newRows);
+                } else {
+                   setRows([...rows, { id: uuidv4(), columns: [newElement] }]);
+                }
+            };
+
+            const deleteRow = (rowId) => {
+                setRows(rows.filter(r => r.id !== rowId));
+                if (selectedElementId && rows.find(r => r.id === rowId)?.columns.find(c => c.id === selectedElementId)) {
+                    setSelectedElementId(null);
+                }
+            };
+
+            const resetForm = () => {
+                setRows([{
+                    id: uuidv4(),
+                    columns: [{
+                        id: uuidv4(),
+                        type: 'button',
+                        label: 'Submit Form',
+                        colSpan: 12,
+                        className: 'btn-primary',
+                        placeholder: ''
+                    }]
+                }]);
+                setSelectedElementId(null);
+            };
+
+            const updateElement = (key, value) => {
+                if (!selectedElementId) return;
+                
+                setRows(rows.map(row => ({
+                    ...row,
+                    columns: row.columns.map(col => {
+                        if (col.id === selectedElementId) {
+                            return { ...col, [key]: value };
+                        }
+                        return col;
+                    })
+                })));
+            };
+
+            const updateOption = (idx, val) => {
+                if (!selectedElement || !selectedElement.options) return;
+                const newOpts = [...selectedElement.options];
+                newOpts[idx] = val;
+                updateElement('options', newOpts);
+            };
+
+            const addOption = () => {
+                if (!selectedElement || !selectedElement.options) return;
+                updateElement('options', [...selectedElement.options, `Option ${selectedElement.options.length + 1}`]);
+            };
+
+            const removeOption = (idx) => {
+                if (!selectedElement || !selectedElement.options) return;
+                const newOpts = selectedElement.options.filter((_, i) => i !== idx);
+                updateElement('options', newOpts);
+            };
+
+            // Drag and Drop
+            const handleDragStart = (e, id) => {
+                setDraggedRowId(id);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', id);
+            };
+
+            const handleDragOver = (e, id) => {
+                e.preventDefault();
+                if (!draggedRowId || draggedRowId === id) return;
+                
+                const sourceIndex = rows.findIndex(r => r.id === draggedRowId);
+                const targetIndex = rows.findIndex(r => r.id === id);
+                
+                if (sourceIndex === -1 || targetIndex === -1) return;
+                
+                const newRows = [...rows];
+                const [removed] = newRows.splice(sourceIndex, 1);
+                newRows.splice(targetIndex, 0, removed);
+                setRows(newRows);
+            };
+
+            const handleDragEnd = () => {
+                setDraggedRowId(null);
+            };
+
+            // Preview Render
+            const renderPreviewElement = (el) => {
+                const commonClasses = "w-full p-2 border rounded border-slate-300 bg-slate-50 text-slate-700 text-sm focus:outline-none pointer-events-none";
+                
+                switch (el.type) {
+                    case 'header':
+                        return <h3 className="text-xl font-bold text-slate-800 border-b pb-2 mb-2">{el.label}</h3>;
+                    case 'paragraph':
+                        return <p className="text-slate-600 mb-2">{el.label}</p>;
+                    case 'textarea':
+                        return <textarea className={commonClasses} rows={3} placeholder={el.placeholder} readOnly />;
+                    case 'select':
+                        return (
+                        <select className={`${commonClasses} appearance-none`} disabled>
+                            <option>{el.placeholder || 'Select...'}</option>
+                            {el.options?.map(o => <option key={o}>{o}</option>)}
+                        </select>
+                        );
+                    case 'checkbox':
+                        return (
+                        <div className="flex items-center gap-2 p-2 border border-dashed border-slate-300 rounded bg-slate-50">
+                            <input type="checkbox" disabled className="w-4 h-4 text-indigo-600" />
+                            <span className="text-sm text-slate-700">{el.label}</span>
+                        </div>
+                        );
+                    case 'radio':
+                        return (
+                        <div className="space-y-1">
+                            {el.options?.map((opt, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                                <input type="radio" name={el.id} disabled className="w-4 h-4 text-indigo-600" />
+                                <span className="text-sm text-slate-600">{opt}</span>
+                            </div>
+                            ))}
+                        </div>
+                        );
+                    case 'color':
+                        return (
+                        <div className="flex items-center gap-2">
+                            <div className="w-10 h-10 rounded border border-slate-300 shadow-sm" style={{ backgroundColor: el.value || '#000000' }}></div>
+                            <input type="text" className={`${commonClasses} w-32`} value={el.value || '#000000'} readOnly />
+                        </div>
+                        );
+                    case 'range':
+                        return (
+                        <div className="w-full">
+                            <input type="range" className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" disabled />
+                        </div>
+                        );
+                    case 'button':
+                        return (
+                        <button className={`w-full py-2 px-4 rounded text-white font-medium shadow-sm ${
+                            el.className?.includes('btn-success') ? 'bg-green-600' : 
+                            el.className?.includes('btn-danger') ? 'bg-red-600' : 
+                            el.className?.includes('btn-secondary') ? 'bg-slate-500' : 
+                            el.className?.includes('btn-dark') ? 'bg-slate-800' : 
+                            'bg-indigo-600'}`}>
+                            {el.label}
+                        </button>
+                        );
+                    case 'file':
+                        return <div className="block w-full p-2 text-sm text-slate-500 border border-slate-300 rounded bg-slate-50">Choose File</div>;
+                    default:
+                        return <input type={el.type === 'number' ? 'text' : el.type} className={commonClasses} placeholder={el.placeholder} readOnly />;
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-screen overflow-hidden bg-slate-50 font-sans text-slate-900">
+                    {/* Navbar */}
+                    <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 shadow-sm z-10">
+                        <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-10 h-10 text-white bg-indigo-600 rounded-lg shadow-indigo-200 shadow-md">
+                            <Icon name="layer-group" />
+                        </div>
+                        <div>
+                            <h1 className="text-lg font-bold text-slate-800 leading-tight">Bootstrap Builder</h1>
+                            <p className="text-xs text-slate-500 font-medium">React • GAS • Bootstrap 5</p>
+                        </div>
+                        </div>
+                        <div className="flex gap-3">
+                        <button 
+                            onClick={resetForm} 
+                            className="px-4 py-2 text-sm font-medium text-red-600 transition-colors bg-white border border-red-200 rounded-md hover:bg-red-50 hover:border-red-300"
+                        >
+                            Clear
+                        </button>
+                        <button 
+                            onClick={() => setShowCode(true)} 
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white transition-all bg-indigo-600 rounded-md shadow-md hover:bg-indigo-700 active:scale-95 shadow-indigo-200"
+                        >
+                            <Icon name="code" /> Export Code
+                        </button>
+                        </div>
+                    </header>
+
+                    <div className="flex flex-1 overflow-hidden">
+                        {/* Left Sidebar */}
+                        <aside className="flex flex-col w-72 bg-white border-r border-slate-200 overflow-y-auto custom-scrollbar">
+                        <div className="p-4">
+                            <h2 className="mb-3 text-xs font-bold tracking-wider text-slate-400 uppercase">Layout Grids</h2>
+                            <div className="grid grid-cols-2 gap-2 mb-6">
+                            <button onClick={() => addRow(1)} className="p-2 text-xs font-medium text-center border border-slate-200 rounded bg-slate-50 hover:bg-white hover:border-indigo-300 hover:text-indigo-600 hover:shadow-sm transition-all">1 Column</button>
+                            <button onClick={() => addRow(2)} className="p-2 text-xs font-medium text-center border border-slate-200 rounded bg-slate-50 hover:bg-white hover:border-indigo-300 hover:text-indigo-600 hover:shadow-sm transition-all">2 Columns</button>
+                            <button onClick={() => addRow(3)} className="p-2 text-xs font-medium text-center border border-slate-200 rounded bg-slate-50 hover:bg-white hover:border-indigo-300 hover:text-indigo-600 hover:shadow-sm transition-all">3 Columns</button>
+                            <button onClick={() => addRow(4)} className="p-2 text-xs font-medium text-center border border-slate-200 rounded bg-slate-50 hover:bg-white hover:border-indigo-300 hover:text-indigo-600 hover:shadow-sm transition-all">4 Columns</button>
+                            </div>
+
+                            <h2 className="mb-3 text-xs font-bold tracking-wider text-slate-400 uppercase">Basic Fields</h2>
+                            <div className="space-y-1 mb-6">
+                            <SidebarItem type="header" label="Header" icon="heading" onClick={() => addElementToNewRow('header')} />
+                            <SidebarItem type="paragraph" label="Paragraph" icon="paragraph" onClick={() => addElementToNewRow('paragraph')} />
+                            <SidebarItem type="text" label="Text Input" icon="font" onClick={() => addElementToNewRow('text')} />
+                            <SidebarItem type="textarea" label="Textarea" icon="align-left" onClick={() => addElementToNewRow('textarea')} />
+                            <SidebarItem type="email" label="Email" icon="envelope" onClick={() => addElementToNewRow('email')} />
+                            <SidebarItem type="password" label="Password" icon="key" onClick={() => addElementToNewRow('password')} />
+                            </div>
+
+                            <h2 className="mb-3 text-xs font-bold tracking-wider text-slate-400 uppercase">Input Types</h2>
+                            <div className="space-y-1 mb-6">
+                            <SidebarItem type="number" label="Number" icon="hashtag" onClick={() => addElementToNewRow('number')} />
+                            <SidebarItem type="tel" label="Phone" icon="phone" onClick={() => addElementToNewRow('tel')} />
+                            <SidebarItem type="url" label="URL" icon="link" onClick={() => addElementToNewRow('url')} />
+                            <SidebarItem type="date" label="Date" icon="calendar" onClick={() => addElementToNewRow('date')} />
+                            <SidebarItem type="time" label="Time" icon="clock" onClick={() => addElementToNewRow('time')} />
+                            <SidebarItem type="color" label="Color Picker" icon="palette" onClick={() => addElementToNewRow('color')} />
+                            <SidebarItem type="range" label="Range Slider" icon="sliders" onClick={() => addElementToNewRow('range')} />
+                            </div>
+
+                            <h2 className="mb-3 text-xs font-bold tracking-wider text-slate-400 uppercase">Selection & Files</h2>
+                            <div className="space-y-1 mb-6">
+                            <SidebarItem type="select" label="Dropdown" icon="list-ul" onClick={() => addElementToNewRow('select')} />
+                            <SidebarItem type="checkbox" label="Checkbox" icon="check-square" onClick={() => addElementToNewRow('checkbox')} />
+                            <SidebarItem type="radio" label="Radio Group" icon="dot-circle" onClick={() => addElementToNewRow('radio')} />
+                            <SidebarItem type="file" label="File Upload" icon="upload" onClick={() => addElementToNewRow('file')} />
+                            </div>
+
+                            <div className="my-2 border-t border-slate-100"></div>
+                            <SidebarItem type="button" label="Submit Button" icon="square-check" onClick={() => addElementToNewRow('button')} />
+                        </div>
+                        </aside>
+
+                        {/* Center: Canvas */}
+                        <main className="flex-1 p-8 overflow-y-auto bg-slate-50 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:20px_20px]">
+                        <div className="max-w-4xl mx-auto pb-20">
+                            <div className="mb-6 bg-white rounded-lg shadow-sm p-8 border border-slate-200">
+                                <input 
+                                type="text" 
+                                value={appName} 
+                                onChange={(e) => setAppName(e.target.value)}
+                                className="w-full p-2.5 text-sm font-mono border rounded-md border-slate-200 bg-slate-50 text-slate-600 focus:ring-2 focus:ring-indigo-100 outline-none"
+                                placeholder="Form Title"
+                                />
+                            </div>
+
+                            {rows.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center p-16 border-2 border-dashed rounded-xl border-slate-300 bg-white/50">
+                                <div className="p-4 mb-4 bg-indigo-50 text-indigo-500 rounded-full shadow-sm animate-pulse">
+                                <Icon name="plus" className="text-3xl" />
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-700 mb-1">Start Building Your Form</h3>
+                                <p className="text-slate-500">Drag items from the sidebar or click to add them.</p>
+                            </div>
+                            ) : (
+                            <div className="space-y-4">
+                                {rows.map((row) => (
+                                <div 
+                                    key={row.id} 
+                                    draggable
+                                    onDragStart={(e) => handleDragStart(e, row.id)}
+                                    onDragOver={(e) => handleDragOver(e, row.id)}
+                                    onDragEnd={handleDragEnd}
+                                    className={`relative group bg-white border rounded-lg shadow-sm hover:shadow-md transition-all p-5 cursor-move ${draggedRowId === row.id ? 'opacity-50 border-indigo-300 border-dashed' : 'border-slate-200'}`}
+                                >
+                                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 z-10">
+                                    <div className="p-1.5 text-slate-400 cursor-move" title="Drag to reorder">
+                                        <Icon name="grip-vertical" />
+                                    </div>
+                                    <button onClick={(e) => { e.stopPropagation(); deleteRow(row.id); }} className="p-1.5 text-red-500 bg-white border border-red-100 rounded hover:bg-red-50 shadow-sm transition-colors">
+                                        <Icon name="trash" />
+                                    </button>
+                                    </div>
+
+                                    <div className="flex flex-wrap -mx-3">
+                                    {row.columns.map((col) => (
+                                        <div 
+                                        key={col.id} 
+                                        className={`px-3 mb-2 w-full`}
+                                        style={{ flex: `0 0 ${(col.colSpan || 12) / 12 * 100}%`, maxWidth: `${(col.colSpan || 12) / 12 * 100}%` }}
+                                        onClick={(e) => { e.stopPropagation(); setSelectedElementId(col.id); }}
+                                        >
+                                        <div 
+                                            className={`p-3 rounded-md border-2 cursor-pointer transition-all ${selectedElementId === col.id ? 'border-indigo-500 bg-indigo-50/50 ring-4 ring-indigo-50' : 'border-transparent hover:border-slate-200 hover:bg-slate-50'}`}
+                                        >
+                                            {col.type !== 'header' && col.type !== 'paragraph' && col.type !== 'button' && (
+                                            <label className="block mb-1.5 text-sm font-semibold text-slate-700">
+                                                {col.label} {col.required && <span className="text-red-500">*</span>}
+                                            </label>
+                                            )}
+                                            
+                                            {renderPreviewElement(col)}
+                                            
+                                            {col.helpText && <p className="mt-1.5 text-xs text-slate-400">{col.helpText}</p>}
+                                        </div>
+                                        </div>
+                                    ))}
+                                    </div>
+                                </div>
+                                ))}
+                            </div>
+                            )}
+                            
+                            <div className="mt-12 text-center text-slate-400 text-xs">
+                            <p>Items generated will use standard Bootstrap 5.3 markup suitable for Google Apps Script HTMLService.</p>
+                            </div>
+                        </div>
+                        </main>
+
+                        {/* Right Sidebar: Properties */}
+                        <aside className="w-80 bg-white border-l border-slate-200 overflow-y-auto shadow-[rgba(0,0,0,0.05)_0px_0px_15px] z-20 custom-scrollbar">
+                        <div className="p-6">
+                            <h2 className="mb-6 text-xs font-bold tracking-widest text-slate-400 uppercase border-b border-slate-100 pb-2">
+                            <Icon name="sliders" className="mr-2" /> Properties
+                            </h2>
+                            
+                            {selectedElement ? (
+                            <div className="space-y-5 animate-fadeIn">
+                                <div>
+                                <label className="block mb-1.5 text-xs font-bold text-slate-600 uppercase">Label</label>
+                                <input 
+                                    type="text" 
+                                    value={selectedElement.label} 
+                                    onChange={(e) => updateElement('label', e.target.value)}
+                                    className="w-full p-2.5 text-sm border rounded-md border-slate-300 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
+                                />
+                                </div>
+
+                                {(selectedElement.type !== 'header' && selectedElement.type !== 'paragraph' && selectedElement.type !== 'button') && (
+                                <>
+                                    <div>
+                                    <label className="block mb-1.5 text-xs font-bold text-slate-600 uppercase">Variable Name</label>
+                                    <input 
+                                        type="text" 
+                                        value={selectedElement.name || ''} 
+                                        onChange={(e) => updateElement('name', e.target.value)}
+                                        className="w-full p-2.5 text-sm font-mono border rounded-md border-slate-200 bg-slate-50 text-slate-600 focus:ring-2 focus:ring-indigo-100 outline-none"
+                                    />
+                                    </div>
+                                    
+                                    {/* --- FILE UPLOAD FOLDER ID CONFIG --- */}
+                                    {selectedElement.type === 'file' && (
+                                        <div className="p-3 mt-2 bg-indigo-50 border border-indigo-100 rounded-md">
+                                            <label className="block mb-1.5 text-xs font-bold text-indigo-700 uppercase">
+                                                <Icon name="folder-open" className="mr-1"/> Target Drive Folder ID
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                value={selectedElement.folderId || ''} 
+                                                onChange={(e) => updateElement('folderId', e.target.value)}
+                                                placeholder="e.g. 1A2b3C..."
+                                                className="w-full p-2.5 text-sm font-mono border rounded-md border-indigo-200 bg-white text-slate-700 focus:ring-2 focus:ring-indigo-200 outline-none"
+                                            />
+                                            <p className="mt-1 text-[10px] text-indigo-400 leading-tight">
+                                                Leave empty to save to Root Drive. Paste the ID from the folder URL.
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {['text', 'email', 'tel', 'url', 'number', 'textarea', 'password'].includes(selectedElement.type) && (
+                                    <div>
+                                        <label className="block mb-1.5 text-xs font-bold text-slate-600 uppercase">Placeholder</label>
+                                        <input 
+                                        type="text" 
+                                        value={selectedElement.placeholder || ''} 
+                                        onChange={(e) => updateElement('placeholder', e.target.value)}
+                                        className="w-full p-2.5 text-sm font-mono border rounded-md border-slate-200 bg-slate-50 text-slate-600 focus:ring-2 focus:ring-indigo-100 outline-none"
+                                        />
+                                    </div>
+                                    )}
+
+                                    {selectedElement.type === 'color' && (
+                                        <div>
+                                        <label className="block mb-1.5 text-xs font-bold text-slate-600 uppercase">Default Color</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="color" 
+                                                value={selectedElement.value || '#000000'} 
+                                                onChange={(e) => updateElement('value', e.target.value)}
+                                                className="h-10 w-10 p-1 border rounded cursor-pointer"
+                                            />
+                                            <input 
+                                                type="text"
+                                                value={selectedElement.value || '#000000'}
+                                                onChange={(e) => updateElement('value', e.target.value)}
+                                                className="flex-1 p-2 text-sm border rounded-md border-slate-300"
+                                            />
+                                        </div>
+                                        </div>
+                                    )}
+
+                                    <div>
+                                    <label className="block mb-1.5 text-xs font-bold text-slate-600 uppercase">Help Text</label>
+                                    <textarea 
+                                        value={selectedElement.helpText || ''} 
+                                        onChange={(e) => updateElement('helpText', e.target.value)}
+                                        className="w-full p-2.5 text-sm font-mono border rounded-md border-slate-200 bg-slate-50 text-slate-600 focus:ring-2 focus:ring-indigo-100 outline-none"
+                                        rows={2}
+                                    />
+                                    </div>
+                                    <div className="flex items-center gap-3 p-3 mt-2 bg-slate-50 rounded-lg border border-slate-100">
+                                    <input 
+                                        type="checkbox" 
+                                        id="req-check"
+                                        checked={selectedElement.required || false}
+                                        onChange={(e) => updateElement('required', e.target.checked)}
+                                        className="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                    <label htmlFor="req-check" className="text-sm font-medium text-slate-700 cursor-pointer">Required Field</label>
+                                    </div>
+                                </>
+                                )}
+
+                                {selectedElement.type === 'button' && (
+                                <div>
+                                    <label className="block mb-1.5 text-xs font-bold text-slate-600 uppercase">Button Style</label>
+                                    <select 
+                                    value={selectedElement.className} 
+                                    onChange={(e) => updateElement('className', e.target.value)}
+                                    className="w-full p-2.5 text-sm border rounded-md border-slate-300 focus:ring-indigo-500 focus:border-indigo-500"
+                                    >
+                                    <option value="btn-primary">Primary (Blue)</option>
+                                    <option value="btn-secondary">Secondary (Gray)</option>
+                                    <option value="btn-success">Success (Green)</option>
+                                    <option value="btn-danger">Danger (Red)</option>
+                                    <option value="btn-dark">Dark</option>
+                                    </select>
+                                </div>
+                                )}
+
+                                {(selectedElement.type === 'select' || selectedElement.type === 'radio' || selectedElement.type === 'checkbox') && (
+                                <div className="pt-4 mt-4 border-t border-slate-100">
+                                    <label className="block mb-3 text-xs font-bold text-slate-600 uppercase">Options</label>
+                                    <div className="space-y-2">
+                                    {selectedElement.options?.map((opt, idx) => (
+                                        <div key={idx} className="flex gap-2 group">
+                                        <input 
+                                            value={opt}
+                                            onChange={(e) => updateOption(idx, e.target.value)}
+                                            className="flex-1 p-2 text-sm border rounded border-slate-300 focus:border-indigo-500 outline-none"
+                                        />
+                                        <button onClick={() => removeOption(idx)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+                                            <Icon name="times" />
+                                        </button>
+                                        </div>
+                                    ))}
+                                    <button onClick={addOption} className="w-full py-2 mt-2 text-xs font-bold text-indigo-600 border-2 border-indigo-100 border-dashed rounded hover:bg-indigo-50 hover:border-indigo-200 transition-all uppercase tracking-wide">
+                                        + Add Option
+                                    </button>
+                                    </div>
+                                </div>
+                                )}
+
+                                <div className="pt-4 mt-6 border-t border-slate-100">
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs font-bold text-slate-600 uppercase">Grid Width</label>
+                                    <span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-600">{selectedElement.colSpan || 12}/12</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="1" 
+                                    max="12" 
+                                    value={selectedElement.colSpan || 12} 
+                                    onChange={(e) => updateElement('colSpan', parseInt(e.target.value))}
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                                />
+                                <div className="flex justify-between text-[10px] text-slate-400 mt-1 uppercase tracking-wider font-medium">
+                                    <span>Narrow</span>
+                                    <span>Full Width</span>
+                                </div>
+                                </div>
+
+                            </div>
+                            ) : (
+                            <div className="flex flex-col items-center justify-center h-64 text-center text-slate-400 p-4 border-2 border-dashed border-slate-100 rounded-lg bg-slate-50/50">
+                                <Icon name="arrow-pointer" className="mb-3 text-3xl opacity-20" />
+                                <p className="text-sm">Select an element on the canvas to customize its properties.</p>
+                            </div>
+                            )}
+                        </div>
+                        </aside>
+                    </div>
+
+                    {/* Code Modal */}
+                    {showCode && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden border border-slate-700">
+                            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-800">Export Code</h2>
+                                <p className="text-xs text-slate-500 font-medium">Copy these files to your Google Apps Script project</p>
+                            </div>
+                            <button onClick={() => setShowCode(false)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
+                                <Icon name="times" className="text-lg" />
+                            </button>
+                            </div>
+                            
+                            <div className="flex border-b border-slate-200 bg-slate-100">
+                            <button 
+                                className={`px-6 py-3 text-sm font-semibold border-b-2 transition-all ${activeTab === 'html' ? 'border-indigo-600 text-indigo-700 bg-white' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
+                                onClick={() => setActiveTab('html')}
+                            >
+                                <Icon name="html5" className="mr-2" /> index.html
+                            </button>
+                            <button 
+                                className={`px-6 py-3 text-sm font-semibold border-b-2 transition-all ${activeTab === 'gs' ? 'border-amber-500 text-amber-700 bg-white' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`}
+                                onClick={() => setActiveTab('gs')}
+                            >
+                                <Icon name="scroll" className="mr-2" /> Code.gs
+                            </button>
+                            </div>
+
+                            <div className="flex-1 overflow-hidden relative bg-[#1e1e1e] group">
+                            <textarea 
+                                className="w-full h-full p-6 font-mono text-sm text-[#d4d4d4] bg-[#1e1e1e] border-none resize-none focus:outline-none custom-scrollbar leading-relaxed"
+                                value={activeTab === 'html' ? generateHTML(rows, appName) : generateGS(rows)}
+                                readOnly
+                            />
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                    onClick={() => {
+                                    navigator.clipboard.writeText(activeTab === 'html' ? generateHTML(rows, appName) : generateGS(rows));
+                                    const btn = document.getElementById('copyBtn');
+                                    if(btn) {
+                                        const originalHtml = btn.innerHTML;
+                                        btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copied!';
+                                        btn.classList.add('bg-green-600', 'border-green-600');
+                                        btn.classList.remove('bg-indigo-600', 'border-indigo-600');
+                                        setTimeout(() => {
+                                            btn.innerHTML = originalHtml;
+                                            btn.classList.remove('bg-green-600', 'border-green-600');
+                                            btn.classList.add('bg-indigo-600', 'border-indigo-600');
+                                        }, 2000);
+                                    }
+                                    }}
+                                    id="copyBtn"
+                                    className="flex items-center px-4 py-2 text-xs font-bold text-white bg-indigo-600 rounded-md shadow-lg hover:bg-indigo-700 transition-all border border-indigo-600"
+                                >
+                                    <Icon name="copy" className="mr-2" /> Copy to Clipboard
+                                </button>
+                            </div>
+                            </div>
+                        </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // --- 4. Mounting ---
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
