@@ -43,7 +43,7 @@
             );
         };
 
-        // --- CODE GENERATORS (UPDATED FOR FILE UPLOAD LOGIC) ---
+        // --- CODE GENERATORS ---
         
         const generateHTML = (rows, formTitle) => {
             const formContent = rows.map(row => {
@@ -74,7 +74,6 @@
                     `;
                     break;
                     case 'file':
-                     // Note: We use specific logic in script to handle this
                     fieldHtml = `
                         <label for="${col.name || col.id}" class="form-label">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
                         <input type="file" class="form-control bg-light" ${idAttr} ${nameAttr} ${requiredAttr}>
@@ -110,11 +109,16 @@
                     break;
                     case 'checkbox':
                     fieldHtml = `
+                        <div class="mb-3">
+                        <label class="form-label d-block">${col.label} ${col.required ? '<span class="text-danger">*</span>' : ''}</label>
+                        ${col.options?.map((opt, idx) => `
                         <div class="form-check">
-                        <input class="form-check-input" type="checkbox" ${idAttr} ${nameAttr} ${requiredAttr}>
-                        <label class="form-check-label" for="${col.name || col.id}">
-                            ${col.label}
-                        </label>
+                            <input class="form-check-input" type="checkbox" name="${col.name}" id="${col.name}_${idx}" value="${opt}" ${requiredAttr}>
+                            <label class="form-check-label" for="${col.name}_${idx}">
+                                ${opt}
+                            </label>
+                        </div>
+                        `).join('')}
                         </div>
                     `;
                     break;
@@ -183,7 +187,6 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"><\/script>
 
     <script>
-      // Helper to read file as Base64
       function getFileData(fileInput) {
         return new Promise((resolve, reject) => {
             if (!fileInput.files || fileInput.files.length === 0) {
@@ -196,7 +199,7 @@
                 resolve({
                     name: file.name,
                     mimeType: file.type,
-                    data: e.target.result.split(',')[1] // Remove 'data:image/png;base64,' prefix
+                    data: e.target.result.split(',')[1] 
                 });
             };
             reader.onerror = reject;
@@ -214,7 +217,6 @@
           return;
         }
 
-        // Show Loading
         $.LoadingOverlay("show", {
           image: "",
           fontawesome: "fa fa-cog fa-spin",
@@ -222,43 +224,35 @@
         });
 
         try {
-            // Collect Data
             var formData = {};
-            var inputs = form.querySelectorAll('input, select, textarea');
+            // Updated: Use FormData API for easier checkbox handling
+            var nativeFormData = new FormData(form);
             
-            for (var i = 0; i < inputs.length; i++) {
-                var el = inputs[i];
-                if (!el.name || el.type === 'submit') continue;
-
-                if (el.type === 'file') {
-                    // Handle File Conversion
-                    var fileData = await getFileData(el);
-                    if (fileData) {
-                        formData[el.name] = fileData;
-                    }
-                } else if (el.type === 'checkbox') {
-                    if (el.checked) {
-                        if (!formData[el.name]) formData[el.name] = [];
-                        // Check if it's part of a group (array) or single boolean
-                        // Simple logic: assume standard values if checkbox has value attribute
-                        formData[el.name].push(el.value || 'Yes'); 
-                    }
-                } else if (el.type === 'radio') {
-                    if (el.checked) formData[el.name] = el.value;
+            // Loop through entries to handle multi-value fields correctly
+            for (var pair of nativeFormData.entries()) {
+                var key = pair[0];
+                var value = pair[1];
+                
+                if (!formData[key]) {
+                    formData[key] = value;
                 } else {
-                    formData[el.name] = el.value;
+                    if (!Array.isArray(formData[key])) {
+                        formData[key] = [formData[key]];
+                    }
+                    formData[key].push(value);
+                }
+            }
+            
+            // Handle File Inputs manually (since FormData just gives filename)
+            var fileInputs = form.querySelectorAll('input[type="file"]');
+            for (var i = 0; i < fileInputs.length; i++) {
+                var el = fileInputs[i];
+                if (el.name && el.files.length > 0) {
+                    var fileData = await getFileData(el);
+                    if (fileData) formData[el.name] = fileData;
                 }
             }
 
-            // Post-process checkboxes
-            for (var key in formData) {
-                if (Array.isArray(formData[key]) && formData[key].length === 1 && formData[key][0] === 'on') {
-                     // Single boolean checkbox case
-                     formData[key] = "Checked"; 
-                }
-            }
-
-            // Call Google Script
             google.script.run
             .withSuccessHandler(function(response) {
                 $.LoadingOverlay("hide");
@@ -303,7 +297,6 @@
         };
 
         const generateGS = (rows) => {
-            // Extract File Maps
             const fileMaps = {};
             rows.forEach(row => {
                 row.columns.forEach(col => {
@@ -326,12 +319,10 @@ function doGet() {
 }
 
 // Configuration for File Uploads
-// Maps field names to Drive Folder IDs
 const FOLDER_MAP = ${fileMapString};
 
 /**
  * Process the form data sent from the client.
- * @param {Object} formData - Key/value pairs of form fields.
  */
 function processForm(formData) {
   var lock = LockService.getScriptLock();
@@ -341,10 +332,7 @@ function processForm(formData) {
     var doc = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = doc.getActiveSheet();
 
-    // Headers
     if (sheet.getLastRow() === 0) {
-      // Use keys from data, filtering out complex objects if needed, 
-      // but usually we just want column names
       var headers = Object.keys(formData);
       sheet.appendRow(headers);
     }
@@ -378,9 +366,6 @@ function processForm(formData) {
   }
 }
 
-/**
- * Helper to save Base64 data to Drive
- */
 function saveFileToDrive(fileObj, folderId) {
   try {
     var blob = Utilities.newBlob(
@@ -394,7 +379,6 @@ function saveFileToDrive(fileObj, folderId) {
       try {
         folder = DriveApp.getFolderById(folderId);
       } catch(e) {
-        // Fallback if ID is invalid
         folder = DriveApp.getRootFolder();
       }
     } else {
@@ -402,7 +386,7 @@ function saveFileToDrive(fileObj, folderId) {
     }
     
     var file = folder.createFile(blob);
-    return file.getUrl(); // Store the URL in the spreadsheet
+    return file.getUrl(); 
   } catch (e) {
     return "Error saving file: " + e.message;
   }
@@ -451,7 +435,6 @@ function saveFileToDrive(fileObj, folderId) {
             const [appName, setAppName] = useState("My Generator Form");
             const [draggedRowId, setDraggedRowId] = useState(null);
 
-            // Helper to find element
             const findElement = (id) => {
                 for (const row of rows) {
                     const found = row.columns.find(c => c.id === id);
@@ -505,7 +488,7 @@ function saveFileToDrive(fileObj, folderId) {
                 if (type === 'button') newElement.label = "Submit Form";
                 if (type === 'paragraph') newElement.label = "Enter your descriptive text here.";
                 if (type === 'color') newElement.value = "#4f46e5";
-                if (type === 'file') newElement.folderId = ""; // Add folderId prop
+                if (type === 'file') newElement.folderId = "";
 
                 const lastRow = rows[rows.length - 1];
                 const isLastRowButton = lastRow && lastRow.columns.length === 1 && lastRow.columns[0].type === 'button';
@@ -619,9 +602,13 @@ function saveFileToDrive(fileObj, folderId) {
                         );
                     case 'checkbox':
                         return (
-                        <div className="flex items-center gap-2 p-2 border border-dashed border-slate-300 rounded bg-slate-50">
-                            <input type="checkbox" disabled className="w-4 h-4 text-indigo-600" />
-                            <span className="text-sm text-slate-700">{el.label}</span>
+                        <div className="space-y-1">
+                            {el.options?.map((opt, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                <input type="checkbox" disabled className="w-4 h-4 text-indigo-600" />
+                                <span className="text-sm text-slate-700">{opt}</span>
+                                </div>
+                            ))}
                         </div>
                         );
                     case 'radio':
@@ -848,7 +835,6 @@ function saveFileToDrive(fileObj, folderId) {
                                     />
                                     </div>
                                     
-                                    {/* --- FILE UPLOAD FOLDER ID CONFIG --- */}
                                     {selectedElement.type === 'file' && (
                                         <div className="p-3 mt-2 bg-indigo-50 border border-indigo-100 rounded-md">
                                             <label className="block mb-1.5 text-xs font-bold text-indigo-700 uppercase">
@@ -957,6 +943,36 @@ function saveFileToDrive(fileObj, folderId) {
                                     <button onClick={addOption} className="w-full py-2 mt-2 text-xs font-bold text-indigo-600 border-2 border-indigo-100 border-dashed rounded hover:bg-indigo-50 hover:border-indigo-200 transition-all uppercase tracking-wide">
                                         + Add Option
                                     </button>
+                                    
+                                    {/* BULK ADD FEATURE ADDED HERE */}
+                                    <div className="mt-3 pt-3 border-t border-slate-100">
+                                        <label className="block mb-2 text-xs font-bold text-slate-500">Bulk Add (Paste list)</label>
+                                        <textarea
+                                            className="w-full p-2 text-xs border rounded-md border-slate-200 focus:border-indigo-500 outline-none"
+                                            rows={3}
+                                            placeholder="Paste options here (one per line)..."
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && e.shiftKey) return; 
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    const lines = e.currentTarget.value.split('\n').map(l => l.trim()).filter(l => l);
+                                                    if (lines.length) {
+                                                        updateElement('options', [...(selectedElement.options || []), ...lines]);
+                                                        e.currentTarget.value = '';
+                                                    }
+                                                }
+                                            }}
+                                            onBlur={(e) => {
+                                                 const lines = e.target.value.split('\n').map(l => l.trim()).filter(l => l);
+                                                 if (lines.length) {
+                                                     updateElement('options', [...(selectedElement.options || []), ...lines]);
+                                                     e.target.value = '';
+                                                 }
+                                            }}
+                                        />
+                                        <p className="text-[10px] text-slate-400 mt-1">Press Enter or click away to add.</p>
+                                    </div>
+
                                     </div>
                                 </div>
                                 )}
